@@ -41,11 +41,7 @@ func NewUPS(name string, client *Client) (UPS, error) {
 		Name:      name,
 		nutClient: client,
 	}
-	_, err := newUPS.CheckIfMaster()
-	if err != nil {
-		return newUPS, err
-	}
-	_, err = newUPS.GetClients()
+	_, err := newUPS.GetClients()
 	if err != nil {
 		return newUPS, err
 	}
