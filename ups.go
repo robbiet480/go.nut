@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"regexp"
 )
 
 // UPS contains information about a specific UPS provided by the NUT instance.
@@ -149,6 +150,24 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 		newVar.Type = varType
 		newVar.Writeable = writeable
 		newVar.MaximumLength = maximumLength
+		if varType == "STRING" {
+			matched, _ := regexp.MatchString(`^[0-9\.]+$`, splitLine[1])
+			if matched && strings.Count(splitLine[1], ".") == 1 {
+				converted, err := strconv.ParseFloat(splitLine[1], 64)
+				if err == nil {
+					newVar.Value = converted
+					newVar.Type = "FLOAT_64"
+					newVar.OriginalType = varType
+				}
+			} else {
+				converted, err := strconv.ParseInt(splitLine[1], 10, 64)
+				if err == nil {
+					newVar.Value = converted
+					newVar.Type = "INTEGER"
+					newVar.OriginalType = varType
+				}
+			}
+		}
 		if varType == "UNKNOWN" || varType == "NUMBER" {
 			if strings.Count(splitLine[1], ".") == 1 {
 				converted, err := strconv.ParseFloat(splitLine[1], 64)
