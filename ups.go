@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"regexp"
 )
 
 // UPS contains information about a specific UPS provided by the NUT instance.
@@ -131,12 +132,7 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 		splitLine := strings.Split(cleanedLine, `"`)
 		newVar.Name = strings.TrimSuffix(splitLine[0], " ")
 		newVar.Value = splitLine[1]
-		if splitLine[1] == "enabled" {
-			newVar.Value = true
-		}
-		if splitLine[1] == "disabled" {
-			newVar.Value = false
-		}
+
 		description, err := u.GetVariableDescription(newVar.Name)
 		if err != nil {
 			return vars, err
@@ -149,7 +145,18 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 		newVar.Type = varType
 		newVar.Writeable = writeable
 		newVar.MaximumLength = maximumLength
-		if varType == "UNKNOWN" || varType == "NUMBER" {
+
+		if splitLine[1] == "enabled" {
+			newVar.Value = true
+			newVar.Type = "BOOLEAN"
+		}
+		if splitLine[1] == "disabled" {
+			newVar.Value = false
+			newVar.Type = "BOOLEAN"
+		}
+
+		matched, _ := regexp.MatchString(`^-?[0-9\.]+$`, splitLine[1])
+		if matched {
 			if strings.Count(splitLine[1], ".") == 1 {
 				converted, err := strconv.ParseFloat(splitLine[1], 64)
 				if err == nil {
@@ -166,6 +173,13 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 				}
 			}
 		}
+
+		/* Failed conversion or not a numeric value - coax to STRING */
+		if err != nil || !matched {
+			newVar.Type = "STRING"
+			newVar.OriginalType = varType
+		}
+
 		vars = append(vars, newVar)
 	}
 	u.Variables = vars
