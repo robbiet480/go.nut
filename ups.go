@@ -134,9 +134,11 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 		splitLine[1] = strings.TrimSuffix(splitLine[1], " ")
 		if splitLine[1] == "enabled" {
 			newVar.Value = true
+			newVar.Type = "BOOLEAN"
 		}
 		if splitLine[1] == "disabled" {
 			newVar.Value = false
+			newVar.Type = "BOOLEAN"
 		}
 		description, err := u.GetVariableDescription(newVar.Name)
 		if err != nil {
@@ -169,6 +171,7 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 			}
 		}
 		if varType == "UNKNOWN" || varType == "NUMBER" {
+			err = nil
 			if strings.Count(splitLine[1], ".") == 1 {
 				converted, err := strconv.ParseFloat(splitLine[1], 64)
 				if err == nil {
@@ -183,6 +186,12 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 					newVar.Type = "INTEGER"
 					newVar.OriginalType = varType
 				}
+			}
+
+			/* Failed to convert either to float or integer - coax to string */
+			if err != nil {
+				newVar.Type = "STRING"
+				newVar.OriginalType = varType
 			}
 		}
 		vars = append(vars, newVar)
