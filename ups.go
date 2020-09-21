@@ -129,6 +129,7 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 		newVar := Variable{}
 		cleanedLine := strings.TrimPrefix(line, offset)
 		splitLine := strings.Split(cleanedLine, `"`)
+		splitLine[1] = strings.Trim(splitLine[1], " ")
 		newVar.Name = strings.TrimSuffix(splitLine[0], " ")
 		newVar.Value = splitLine[1]
 		if splitLine[1] == "enabled" {
