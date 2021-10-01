@@ -18,9 +18,13 @@ type Client struct {
 	conn            *net.TCPConn
 }
 
-// Connect accepts a hostname/IP string and creates a connection to NUT, returning a Client.
-func Connect(hostname string) (Client, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:3493", hostname))
+// Connect accepts a hostname/IP string and an optional port, then creates a connection to NUT, returning a Client.
+func Connect(hostname string, _port ...int) (Client, error) {
+	port := 3493
+	if len(_port) > 0 {
+		port = _port[0]
+	}
+	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", hostname, port))
 	if err != nil {
 		return Client{}, err
 	}
