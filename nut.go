@@ -139,12 +139,18 @@ func (c *Client) GetUPSList() ([]UPS, error) {
 // Help returns a list of the commands supported by NUT.
 func (c *Client) Help() (string, error) {
 	helpResp, err := c.SendCommand("HELP")
+	if err != nil || len(helpResp) < 1 {
+		return "", err
+	}
 	return helpResp[0], err
 }
 
 // GetVersion returns the the version of the server currently in use.
 func (c *Client) GetVersion() (string, error) {
 	versionResponse, err := c.SendCommand("VER")
+	if err != nil || len(versionResponse) < 1 {
+		return "", err
+	}
 	c.Version = versionResponse[0]
 	return versionResponse[0], err
 }
@@ -152,6 +158,9 @@ func (c *Client) GetVersion() (string, error) {
 // GetNetworkProtocolVersion returns the version of the network protocol currently in use.
 func (c *Client) GetNetworkProtocolVersion() (string, error) {
 	versionResponse, err := c.SendCommand("NETVER")
+	if err != nil || len(versionResponse) < 1 {
+		return "", err
+	}
 	c.ProtocolVersion = versionResponse[0]
 	return versionResponse[0], err
 }
