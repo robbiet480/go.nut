@@ -1,3 +1,3 @@
-module github.com/Malinskiy/go.nut
+module  github.com/robbiet480/go.nut
 
 go 1.17
