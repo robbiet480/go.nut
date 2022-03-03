@@ -20,7 +20,9 @@ type Client struct {
 	conn            net.Conn
 }
 
-// Connect accepts a hostname/IP string and an optional port, then creates a connection to NUT, returning a Client.
+// Connect accepts takes a hostname/IP and timeouts for the connection and operations.
+// It also accepts an optional port number for NUT running on a non-standard port,
+// It creates a connection to the NUT daemon, returning a Client.
 func Connect(hostname string, connectTimeout time.Duration, opTimeout time.Duration, _port ...int) (Client, error) {
 	port := 3493
 	if len(_port) > 0 {
