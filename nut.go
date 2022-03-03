@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 // Client contains information about the NUT server as well as the connection.
@@ -15,27 +16,33 @@ type Client struct {
 	Version         string
 	ProtocolVersion string
 	Hostname        net.Addr
-	conn            *net.TCPConn
+	opTimeout       time.Duration
+	conn            net.Conn
 }
 
 // Connect accepts a hostname/IP string and an optional port, then creates a connection to NUT, returning a Client.
-func Connect(hostname string, _port ...int) (Client, error) {
+func Connect(hostname string, connectTimeout time.Duration, opTimeout time.Duration, _port ...int) (Client, error) {
 	port := 3493
 	if len(_port) > 0 {
 		port = _port[0]
 	}
-	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", hostname, port))
-	if err != nil {
-		return Client{}, err
+
+	remoteHost := net.JoinHostPort(hostname, fmt.Sprintf("%d", port))
+
+	d := net.Dialer{
+		Timeout: connectTimeout,
 	}
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	conn, err := d.Dial("tcp", remoteHost)
+
 	if err != nil {
 		return Client{}, err
 	}
 	client := Client{
-		Hostname: conn.RemoteAddr(),
-		conn:     conn,
+		Hostname:  conn.RemoteAddr(),
+		conn:      conn,
+		opTimeout: opTimeout,
 	}
+
 	client.GetVersion()
 	client.GetNetworkProtocolVersion()
 	return client, nil
@@ -59,6 +66,10 @@ func (c *Client) ReadResponse(endLine string, multiLineResponse bool) (resp []st
 	response := []string{}
 
 	for {
+		err = c.conn.SetReadDeadline(time.Now().Add(c.opTimeout))
+		if err != nil {
+			return nil, err
+		}
 		line, err := connbuff.ReadString('\n')
 		if err != nil {
 			return nil, fmt.Errorf("error reading response: %v", err)
@@ -83,18 +94,22 @@ func (c *Client) SendCommand(cmd string) (resp []string, err error) {
 	if strings.HasPrefix(cmd, "USERNAME ") || strings.HasPrefix(cmd, "PASSWORD ") || strings.HasPrefix(cmd, "SET ") || strings.HasPrefix(cmd, "HELP ") || strings.HasPrefix(cmd, "VER ") || strings.HasPrefix(cmd, "NETVER ") {
 		endLine = "OK\n"
 	}
-	_, err = fmt.Fprint(c.conn, cmd)
+	err = c.conn.SetWriteDeadline(time.Now().Add(c.opTimeout))
 	if err != nil {
-		return []string{}, err
+		return nil, err
+	}
+	_, err = c.conn.Write([]byte(cmd))
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err = c.ReadResponse(endLine, strings.HasPrefix(cmd, "LIST "))
 	if err != nil {
-		return []string{}, err
+		return nil, err
 	}
 
 	if strings.HasPrefix(resp[0], "ERR ") {
-		return []string{}, errorForMessage(strings.Split(resp[0], " ")[1])
+		return nil, errorForMessage(strings.Split(resp[0], " ")[1])
 	}
 
 	return resp, nil

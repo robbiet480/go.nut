@@ -2,17 +2,16 @@ package nut
 
 import (
 	"fmt"
-
-	nut "github.com/robbiet480/go.nut"
+	"time"
 )
 
 // This example connects to NUT, authenticates and returns the first UPS listed.
 func ExampleGetUPSList() {
-	client, connectErr := nut.Connect("127.0.0.1")
+	client, connectErr := Connect("127.0.0.1", 10*time.Second, 30*time.Second)
 	if connectErr != nil {
 		fmt.Print(connectErr)
 	}
-	_, authenticationError = client.Authenticate("username", "password")
+	_, authenticationError := client.Authenticate("username", "password")
 	if authenticationError != nil {
 		fmt.Print(authenticationError)
 	}
