@@ -1,6 +1,6 @@
 [![GoDoc](https://godoc.org/github.com/robbiet480/go.nut?status.svg)](https://godoc.org/github.com/robbiet480/go.nut)
 
-Forket from https://github.com/robbiet480/go.nut
+Forked from https://github.com/robbiet480/go.nut
 
 # go.nut
 go.nut is a Golang library for interacting with [NUT (Network UPS Tools)](https://networkupstools.org/)
