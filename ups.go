@@ -2,9 +2,9 @@ package nut
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
-	"regexp"
 )
 
 // UPS contains information about a specific UPS provided by the NUT instance.
@@ -16,7 +16,8 @@ type UPS struct {
 	Clients        []string
 	Variables      []Variable
 	Commands       []Command
-	nutClient      *Client
+
+	client *Client
 }
 
 // Variable describes a single variable related to a UPS.
@@ -37,94 +38,101 @@ type Command struct {
 }
 
 // NewUPS takes a UPS name and NUT client and returns an instantiated UPS struct.
-func NewUPS(name string, client *Client) (UPS, error) {
-	newUPS := UPS{
-		Name:      name,
-		nutClient: client,
+func NewUPS(name string, client *Client) (*UPS, error) {
+	u := UPS{
+		Name:   name,
+		client: client,
 	}
-	_, err := newUPS.GetClients()
-	if err != nil {
-		return newUPS, err
+
+	var err error
+
+	if u.Clients, err = u.GetClients(); err != nil {
+		return nil, err
 	}
-	_, err = newUPS.GetCommands()
-	if err != nil {
-		return newUPS, err
+	if u.Commands, err = u.GetCommands(); err != nil {
+		return nil, err
 	}
-	_, err = newUPS.GetDescription()
-	if err != nil {
-		return newUPS, err
+	if u.Description, err = u.GetDescription(); err != nil {
+		return nil, err
 	}
-	_, err = newUPS.GetNumberOfLogins()
-	if err != nil {
-		return newUPS, err
+	if u.NumberOfLogins, err = u.GetNumberOfLogins(); err != nil {
+		return nil, err
 	}
-	_, err = newUPS.GetVariables()
-	if err != nil {
-		return newUPS, err
+	if u.Variables, err = u.GetVariables(); err != nil {
+		return nil, err
 	}
-	return newUPS, err
+
+	return &u, nil
 }
 
 // GetNumberOfLogins returns the number of clients which have done LOGIN for this UPS.
 func (u *UPS) GetNumberOfLogins() (int, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("GET NUMLOGINS %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("GET NUMLOGINS %s", u.Name))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: send command get numlogins fail", err)
 	}
+
 	atoi, err := strconv.Atoi(strings.TrimPrefix(resp[0], fmt.Sprintf("NUMLOGINS %s ", u.Name)))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: parse int fail", err)
 	}
-	u.NumberOfLogins = atoi
+
 	return atoi, nil
 }
 
 // GetClients returns a list of NUT clients.
 func (u *UPS) GetClients() ([]string, error) {
-	clientsList := []string{}
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("LIST CLIENT %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("LIST CLIENT %s", u.Name))
 	if err != nil {
-		return clientsList, err
+		return nil, fmt.Errorf("%w: send command list client fail", err)
 	}
+
+	var clientsList []string
+
 	linePrefix := fmt.Sprintf("CLIENT %s ", u.Name)
 	for _, line := range resp[1 : len(resp)-1] {
 		clientsList = append(clientsList, strings.TrimPrefix(line, linePrefix))
 	}
-	u.Clients = clientsList
+
 	return clientsList, nil
 }
 
 // CheckIfMaster returns true if the session is authenticated with the master permission set.
 func (u *UPS) CheckIfMaster() (bool, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("MASTER %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("MASTER %s", u.Name))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: send command master fail", err)
 	}
+
 	if resp[0] == "OK" {
 		u.Master = true
 		return true, nil
 	}
+
 	return false, nil
 }
 
 // GetDescription the value of "desc=" from ups.conf for this UPS. If it is not set, upsd will return "Unavailable".
 func (u *UPS) GetDescription() (string, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("GET UPSDESC %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("GET UPSDESC %s", u.Name))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: send command get upsdesc fail", err)
 	}
+
 	description := strings.TrimPrefix(strings.Replace(resp[0], `"`, "", -1), fmt.Sprintf(`UPSDESC %s `, u.Name))
-	u.Description = description
+
 	return description, nil
 }
 
 // GetVariables returns a slice of Variable structs for the UPS.
 func (u *UPS) GetVariables() ([]Variable, error) {
-	vars := []Variable{}
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("LIST VAR %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("LIST VAR %s", u.Name))
 	if err != nil {
-		return vars, err
+		return nil, fmt.Errorf("%w: send command list var fail", err)
 	}
+
+	var vars []Variable
+
 	offset := fmt.Sprintf("VAR %s ", u.Name)
 	for _, line := range resp[1 : len(resp)-1] {
 		newVar := Variable{}
@@ -136,13 +144,16 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 
 		description, err := u.GetVariableDescription(newVar.Name)
 		if err != nil {
-			return vars, err
+			return vars, fmt.Errorf("%w: get variable description fail", err)
 		}
+
 		newVar.Description = description
+
 		varType, writeable, maximumLength, err := u.GetVariableType(newVar.Name)
 		if err != nil {
-			return vars, err
+			return vars, fmt.Errorf("%w: get variable type fail", err)
 		}
+
 		newVar.Type = varType
 		newVar.Writeable = writeable
 		newVar.MaximumLength = maximumLength
@@ -175,7 +186,7 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 			}
 		}
 
-		/* Failed conversion or not a numeric value - coax to STRING */
+		// Failed conversion or not a numeric value - coax to STRING
 		if err != nil || !matched {
 			newVar.Type = "STRING"
 			newVar.OriginalType = varType
@@ -183,105 +194,120 @@ func (u *UPS) GetVariables() ([]Variable, error) {
 
 		vars = append(vars, newVar)
 	}
-	u.Variables = vars
+
 	return vars, nil
 }
 
 // GetVariableDescription returns a string that gives a brief explanation for the given variableName.
 // upsd may return "Unavailable" if the file which provides this description is not installed.
 func (u *UPS) GetVariableDescription(variableName string) (string, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("GET DESC %s %s", u.Name, variableName))
+	resp, err := u.client.SendCommand(fmt.Sprintf("GET DESC %s %s", u.Name, variableName))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: send command get desc fail", err)
 	}
+
 	trimmedLine := strings.TrimPrefix(resp[0], fmt.Sprintf("DESC %s %s ", u.Name, variableName))
 	description := strings.Replace(trimmedLine, `"`, "", -1)
+
 	return description, nil
 }
 
 // GetVariableType returns the variable type, writeability and maximum length for the given variableName.
 func (u *UPS) GetVariableType(variableName string) (string, bool, int, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("GET TYPE %s %s", u.Name, variableName))
+	resp, err := u.client.SendCommand(fmt.Sprintf("GET TYPE %s %s", u.Name, variableName))
 	if err != nil {
-		return "UNKNOWN", false, -1, err
+		return "UNKNOWN", false, -1, fmt.Errorf("%w: send command get type fail", err)
 	}
+
 	trimmedLine := strings.TrimPrefix(resp[0], fmt.Sprintf("TYPE %s %s ", u.Name, variableName))
 	splitLine := strings.Split(trimmedLine, " ")
 	writeable := (splitLine[0] == "RW")
 	varType := "UNKNOWN"
 	maximumLength := 0
+
 	if writeable {
 		varType = splitLine[1]
+
 		if strings.HasPrefix(varType, "STRING:") {
 			splitType := strings.Split(varType, ":")
 			varType = splitType[0]
+
 			maximumLength, err = strconv.Atoi(splitType[1])
 			if err != nil {
-				return varType, writeable, -1, err
+				return varType, writeable, -1, fmt.Errorf("%w: parse int fail", err)
 			}
 		}
 	} else {
 		varType = splitLine[0]
 	}
+
 	return varType, writeable, maximumLength, nil
 }
 
 // GetCommands returns a slice of Command structs for the UPS.
 func (u *UPS) GetCommands() ([]Command, error) {
-	commandsList := []Command{}
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("LIST CMD %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("LIST CMD %s", u.Name))
 	if err != nil {
-		return commandsList, err
+		return nil, fmt.Errorf("%w: send command list cmd fail", err)
 	}
+
+	var commandsList []Command
+
 	linePrefix := fmt.Sprintf("CMD %s ", u.Name)
 	for _, line := range resp[1 : len(resp)-1] {
 		cmdName := strings.TrimPrefix(line, linePrefix)
 		cmd := Command{
 			Name: cmdName,
 		}
+
 		description, err := u.GetCommandDescription(cmdName)
 		if err != nil {
-			return commandsList, err
+			return nil, fmt.Errorf("%w: get command description fail", err)
 		}
+
 		cmd.Description = description
 		commandsList = append(commandsList, cmd)
 	}
-	u.Commands = commandsList
+
 	return commandsList, nil
 }
 
 // GetCommandDescription returns a string that gives a brief explanation for the given commandName.
 func (u *UPS) GetCommandDescription(commandName string) (string, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("GET CMDDESC %s %s", u.Name, commandName))
+	resp, err := u.client.SendCommand(fmt.Sprintf("GET CMDDESC %s %s", u.Name, commandName))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: send command get cmddesc fail", err)
 	}
+
 	trimmedLine := strings.TrimPrefix(resp[0], fmt.Sprintf("CMDDESC %s %s ", u.Name, commandName))
 	description := strings.Replace(trimmedLine, `"`, "", -1)
-	return description, err
+
+	return description, nil
 }
 
 // SetVariable sets the given variableName to the given value on the UPS.
 func (u *UPS) SetVariable(variableName, value string) (bool, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf(`SET VAR %s %s "%s"`, u.Name, variableName, value))
+	resp, err := u.client.SendCommand(fmt.Sprintf(`SET VAR %s %s "%s"`, u.Name, variableName, value))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: send command set var fail", err)
 	}
 	if resp[0] == "OK" {
 		return true, nil
 	}
+
 	return false, nil
 }
 
 // SendCommand sends a command to the UPS.
 func (u *UPS) SendCommand(commandName string) (bool, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("INSTCMD %s %s", u.Name, commandName))
+	resp, err := u.client.SendCommand(fmt.Sprintf("INSTCMD %s %s", u.Name, commandName))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: send command instcmd fail", err)
 	}
 	if resp[0] == "OK" {
 		return true, nil
 	}
+
 	return false, nil
 }
 
@@ -295,12 +321,13 @@ func (u *UPS) SendCommand(commandName string) (bool, error) {
 //
 // It should be noted that FSD is currently a latch - once set, there is no way to clear it short of restarting upsd or dropping then re-adding it in the ups.conf. This may cause issues when upsd is running on a system that is not shut down due to the UPS event.
 func (u *UPS) ForceShutdown() (bool, error) {
-	resp, err := u.nutClient.SendCommand(fmt.Sprintf("FSD %s", u.Name))
+	resp, err := u.client.SendCommand(fmt.Sprintf("FSD %s", u.Name))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%w: send command fsd fail", err)
 	}
 	if resp[0] == "OK FSD-SET" {
 		return true, nil
 	}
+
 	return false, nil
 }
