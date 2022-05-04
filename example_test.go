@@ -2,6 +2,7 @@ package nut
 
 import (
 	"fmt"
+	nut "github.com/robbiet480/go.nut"
 	"time"
 )
 
