@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 // Client contains information about the NUT server as well as the connection.
@@ -55,6 +56,7 @@ func (c *Client) Disconnect() (bool, error) {
 
 // ReadResponse is a convenience function for reading newline delimited responses.
 func (c *Client) ReadResponse(endLine string, multiLineResponse bool) (resp []string, err error) {
+	c.conn.SetReadDeadline(time.Now().Add(time.Second * 2))
 	connbuff := bufio.NewReader(c.conn)
 	response := []string{}
 
