@@ -5,6 +5,8 @@ package nut
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -16,34 +18,64 @@ type Client struct {
 	Version         string
 	ProtocolVersion string
 	Hostname        net.Addr
-	conn            *net.TCPConn
+	conn            net.Conn
+	ctx             context.Context
+	stop            func() bool
 }
 
 // Connect accepts a hostname/IP string and an optional port, then creates a connection to NUT, returning a Client.
 func Connect(hostname string, _port ...int) (Client, error) {
+	return ConnectContext(context.Background(), hostname, _port...)
+}
+
+// ConnectContext connects to NUT and verifies VER and NETVER.
+// The context controls dialing, the handshake, and all subsequent I/O.
+// Call Close or Disconnect when finished, even when ctx has no deadline.
+func ConnectContext(ctx context.Context, hostname string, _port ...int) (Client, error) {
 	port := 3493
 	if len(_port) > 0 {
 		port = _port[0]
 	}
-	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", hostname, port))
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(hostname, fmt.Sprint(port)))
 	if err != nil {
 		return Client{}, err
 	}
-	conn, err := net.DialTCP("tcp", nil, tcpAddr)
+	client := Client{Hostname: conn.RemoteAddr(), conn: conn, ctx: ctx}
+	client.stop = context.AfterFunc(ctx, func() { _ = conn.Close() })
+	if _, err = client.GetVersion(); err == nil {
+		_, err = client.GetNetworkProtocolVersion()
+	}
 	if err != nil {
+		_ = client.Close()
+		if ctx.Err() != nil {
+			return Client{}, ctx.Err()
+		}
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return Client{}, context.DeadlineExceeded
+		}
 		return Client{}, err
 	}
-	client := Client{
-		Hostname: conn.RemoteAddr(),
-		conn:     conn,
-	}
-	client.GetVersion()
-	client.GetNetworkProtocolVersion()
 	return client, nil
 }
 
-// Disconnect gracefully disconnects from NUT by sending the LOGOUT command.
+// Close releases the connection without sending LOGOUT. Repeated calls are safe.
+func (c *Client) Close() error {
+	if c.stop != nil {
+		c.stop()
+	}
+	if c.conn == nil {
+		return nil
+	}
+	err := c.conn.Close()
+	if errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+// Disconnect sends LOGOUT and closes the connection, even if LOGOUT fails.
 func (c *Client) Disconnect() (bool, error) {
+	defer c.Close()
 	logoutResp, err := c.SendCommand("LOGOUT")
 	if err != nil {
 		return false, err
@@ -54,9 +86,21 @@ func (c *Client) Disconnect() (bool, error) {
 	return false, nil
 }
 
+func (c *Client) operationDeadline() time.Time {
+	deadline := time.Now().Add(2 * time.Second)
+	if c.ctx != nil {
+		if overall, ok := c.ctx.Deadline(); ok && overall.Before(deadline) {
+			deadline = overall
+		}
+	}
+	return deadline
+}
+
 // ReadResponse is a convenience function for reading newline delimited responses.
 func (c *Client) ReadResponse(endLine string, multiLineResponse bool) (resp []string, err error) {
-	c.conn.SetReadDeadline(time.Now().Add(time.Second * 2))
+	if err := c.conn.SetReadDeadline(c.operationDeadline()); err != nil {
+		return nil, err
+	}
 	connbuff := bufio.NewReader(c.conn)
 	response := []string{}
 
@@ -84,6 +128,12 @@ func (c *Client) SendCommand(cmd string) (resp []string, err error) {
 	endLine := fmt.Sprintf("END %s", cmd)
 	if strings.HasPrefix(cmd, "USERNAME ") || strings.HasPrefix(cmd, "PASSWORD ") || strings.HasPrefix(cmd, "SET ") || strings.HasPrefix(cmd, "HELP ") || strings.HasPrefix(cmd, "VER ") || strings.HasPrefix(cmd, "NETVER ") {
 		endLine = "OK\n"
+	}
+	if c.ctx != nil && c.ctx.Err() != nil {
+		return nil, c.ctx.Err()
+	}
+	if err := c.conn.SetWriteDeadline(c.operationDeadline()); err != nil {
+		return nil, err
 	}
 	_, err = fmt.Fprint(c.conn, cmd)
 	if err != nil {

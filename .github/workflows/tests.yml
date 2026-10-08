@@ -1,0 +1,31 @@
+name: Client tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ['1.21.x', stable]
+    env:
+      GO111MODULE: 'off'
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - name: Set up GOPATH
+        run: |
+          export GOPATH="$RUNNER_TEMP/gopath"
+          mkdir -p "$GOPATH/src/github.com/robbiet480"
+          ln -s "$GITHUB_WORKSPACE" "$GOPATH/src/github.com/robbiet480/go.nut"
+          printf 'GOPATH=%s\n' "$GOPATH" >> "$GITHUB_ENV"
+      - name: Test with race detector
+        run: go test -race -count=3 github.com/robbiet480/go.nut
+      - name: Vet
+        run: go vet github.com/robbiet480/go.nut
+      - name: Formatting
+        run: test -z "$(gofmt -l nut.go example_test.go nut_*_test.go)"

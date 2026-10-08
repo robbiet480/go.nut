@@ -1,4 +1,4 @@
-package nut
+package nut_test
 
 import (
 	"fmt"
@@ -7,12 +7,14 @@ import (
 )
 
 // This example connects to NUT, authenticates and returns the first UPS listed.
-func ExampleGetUPSList() {
+func ExampleClient_GetUPSList() {
 	client, connectErr := nut.Connect("127.0.0.1")
 	if connectErr != nil {
 		fmt.Print(connectErr)
+		return
 	}
-	_, authenticationError = client.Authenticate("username", "password")
+	defer client.Close()
+	_, authenticationError := client.Authenticate("username", "password")
 	if authenticationError != nil {
 		fmt.Print(authenticationError)
 	}
